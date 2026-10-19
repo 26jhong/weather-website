@@ -1,0 +1,517 @@
+:root {
+  --bg-start: #4facfe;
+  --bg-end: #00c6fb;
+  --card: rgba(255, 255, 255, 0.92);
+  --text: #1f2a44;
+  --muted: #6b7694;
+  --accent: #3b6df0;
+  --hover: #eef3ff;
+  --radius: 20px;
+  --pad: clamp(12px, 2vw, 28px);   /* space around the page and between panels */
+  --chart-h: clamp(280px, 34vh, 440px);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: var(--pad);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: linear-gradient(160deg, var(--bg-start), var(--bg-end));
+  background-attachment: fixed;
+  transition: background 0.6s ease;
+}
+
+/* Background shifts with the weather */
+body[data-theme="clear"]  { --bg-start: #f6a52c; --bg-end: #ffd86b; }
+body[data-theme="cloudy"] { --bg-start: #7b8aa3; --bg-end: #b9c4d6; }
+body[data-theme="fog"]    { --bg-start: #8e9aa8; --bg-end: #cfd6de; }
+body[data-theme="rain"]   { --bg-start: #3a4f7a; --bg-end: #6b86b8; }
+body[data-theme="snow"]   { --bg-start: #6f9cc7; --bg-end: #bcd6ee; }
+body[data-theme="storm"]  { --bg-start: #262b44; --bg-end: #5a5f8a; }
+body[data-theme="night"]  { --bg-start: #141a38; --bg-end: #3a3f73; }
+
+/* Animated weather background (drawn by weather-bg.js) */
+#bg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+
+#bg.fading { opacity: 0; }
+
+/* ---------- Page layout ----------
+   Phone:   one column
+   Tablet:  current weather | air quality, then the two charts full width
+   Desktop: current weather | air quality | 7-day forecast, then the hourly chart full width */
+.app {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 1760px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--pad);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "top"
+    "now"
+    "air"
+    "hourly"
+    "weekly";
+}
+
+.app > * { min-width: 0; } /* lets wide charts scroll inside their panel instead of stretching the page */
+
+@media (min-width: 860px) {
+  .app {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "top    top"
+      "now    air"
+      "hourly hourly"
+      "weekly weekly";
+  }
+}
+
+@media (min-width: 1280px) {
+  .app {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 5fr);
+    grid-template-areas:
+      "top    top    top"
+      "now    air    weekly"
+      "hourly hourly hourly";
+  }
+}
+
+/* Before the first search there is just the search bar and a welcome panel */
+.app:not(.loaded) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "top"
+    "now";
+}
+
+.topbar { grid-area: top; }
+#result { grid-area: now; }
+#air { grid-area: air; }
+#hourly { grid-area: hourly; }
+#weekly { grid-area: weekly; }
+
+.panel {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: clamp(16px, 2vw, 28px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(10px);
+}
+
+/* ---------- Top bar & search ---------- */
+.topbar {
+  position: relative;
+  z-index: 20; /* keeps the suggestion dropdown above the panels below */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.02em;
+}
+
+#search {
+  display: flex;
+  flex: 1 1 320px;
+  max-width: 600px;
+  gap: 8px;
+}
+
+.box {
+  position: relative;
+  flex: 1;
+}
+
+input {
+  width: 100%;
+  font-size: 1rem;
+  padding: 12px 16px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: #f0f3fa;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+input:focus {
+  border-color: var(--accent);
+  background: white;
+}
+
+button {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  transition: transform 0.1s, filter 0.2s;
+}
+
+button:hover { filter: brightness(1.1); }
+button:active { transform: scale(0.97); }
+
+#suggestions {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  animation: dropIn 0.16s ease;
+}
+
+#suggestions:empty { display: none; }
+
+#suggestions li {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+#suggestions li:hover,
+#suggestions li.active {
+  background: var(--hover);
+  color: var(--accent);
+}
+
+/* ---------- Current weather panel ---------- */
+#result {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.message {
+  margin: 0;
+  padding: 20px 0;
+  text-align: center;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.weather {
+  width: 100%;
+  text-align: center;
+}
+
+.weather h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.icon {
+  font-size: clamp(4.5rem, 6vw, 6rem);
+  line-height: 1.1;
+  margin: 12px 0 4px;
+}
+
+.temp {
+  font-size: clamp(3.4rem, 5vw, 4.8rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.temp small {
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.condition {
+  margin: 4px 0 24px;
+  font-size: 1.15rem;
+  color: var(--muted);
+}
+
+.details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.detail {
+  background: #f0f3fa;
+  border-radius: 14px;
+  padding: 14px 10px;
+}
+
+.detail .label {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.detail .value {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+/* ---------- Air quality panel ---------- */
+#air:empty { display: none; }
+
+.air {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+}
+
+.air-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.air-head h3 { margin: 0; font-size: 1.1rem; }
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: right;
+  background: color-mix(in srgb, var(--c) 20%, white);
+  color: var(--t);
+}
+
+.air-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.aqi-num {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 84px;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.aqi-num small {
+  margin-top: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.advice { margin: 0; font-size: 0.95rem; line-height: 1.45; }
+
+.gauge {
+  position: relative;
+  height: 10px;
+  margin: 8px 4px 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2fb36b 0%, #9bc53d 14%, #f2c200 30%, #f28c28 48%, #e5484d 64%, #8f3fbf 82%, #7e1d3f 100%);
+}
+
+.gauge-marker {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  border: 4px solid var(--c);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  transition: left 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.gauge-scale {
+  position: relative;
+  height: 16px;
+  margin: 10px 4px 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.gauge-scale span { position: absolute; transform: translateX(-50%); }
+.gauge-scale span:first-child { transform: none; }
+.gauge-scale span:last-child { transform: translateX(-100%); }
+
+.pollutants {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pollutants .detail { padding: 10px 6px; text-align: center; }
+.pollutants .value { font-size: 1.1rem; }
+.pollutants .unit { display: block; margin-top: 2px; font-size: 0.68rem; color: var(--muted); }
+
+.footnote { margin: 16px 0 0; font-size: 0.72rem; color: var(--muted); text-align: center; }
+.air-note { margin: 0; text-align: center; font-size: 0.9rem; color: var(--muted); }
+
+/* ---------- Chart panels ---------- */
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chart-head h2 { margin: 0; font-size: 1.1rem; }
+
+.hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.chart-wrap {
+  position: relative;
+  height: var(--chart-h);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* ---------- Subtle motion ---------- */
+/* Elements rise into place one after another (set --i for the order) */
+.reveal {
+  animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+}
+
+/* The weather icon floats gently; the sun and snowflake turn slowly */
+.icon span {
+  display: inline-block;
+  animation: float 4.5s ease-in-out infinite;
+}
+
+.icon.t-clear span { animation: spin 48s linear infinite; }
+.icon.t-snow span { animation: spin 24s linear infinite; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.detail { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.detail:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(31, 42, 68, 0.1); }
+
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+/* Loading placeholders */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.sk {
+  border-radius: 12px;
+  background: linear-gradient(90deg, #e8ecf6 25%, #f6f8fd 50%, #e8ecf6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.sk-title { width: 160px; height: 22px; }
+.sk-circle { width: 84px; height: 84px; border-radius: 50%; }
+.sk-temp { width: 200px; height: 52px; }
+.sk-line { width: 130px; height: 18px; }
+.sk-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; margin-top: 10px; }
+.sk-tile { height: 66px; }
+.sk-air { width: 100%; height: 100%; min-height: 280px; border-radius: 16px; }
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Respect "reduce motion" settings */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .pollutants { grid-template-columns: repeat(2, 1fr); }
+  .air-main { flex-direction: column; align-items: flex-start; }
+  .temp { font-size: 3rem; }
+}

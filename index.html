@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weather</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+
+  <main class="app">
+    <header class="topbar panel reveal">
+      <h1>Weather</h1>
+      <form id="search" autocomplete="off">
+        <div class="box">
+          <input id="city" placeholder="Search a U.S. city" required>
+          <ul id="suggestions"></ul>
+        </div>
+        <button>Search</button>
+      </form>
+    </header>
+
+    <section id="result" class="panel">
+      <p class="message">Search for a city to see current conditions, air quality and the forecast.</p>
+    </section>
+
+    <section id="air" class="panel"></section>
+
+    <section id="hourly" class="panel reveal" style="--i:2" hidden>
+      <div class="chart-head">
+        <h2>Today, hour by hour</h2>
+        <p id="hourly-hint" class="hint" hidden>Scroll sideways to see all 24 hours →</p>
+      </div>
+      <div id="hourly-scroll" class="chart-scroll">
+        <div id="hourly-wrap" class="chart-wrap"><canvas id="hourly-canvas"></canvas></div>
+      </div>
+      <div id="hourly-legend" class="legend"></div>
+    </section>
+
+    <section id="weekly" class="panel reveal" style="--i:3" hidden>
+      <div class="chart-head">
+        <h2>7-day forecast</h2>
+        <p id="weekly-hint" class="hint" hidden>Scroll sideways to see all 7 days →</p>
+      </div>
+      <div id="weekly-scroll" class="chart-scroll">
+        <div id="weekly-wrap" class="chart-wrap"><canvas id="weekly-canvas"></canvas></div>
+      </div>
+      <div id="weekly-legend" class="legend"></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="weather-bg.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
